@@ -4,7 +4,7 @@ import { ErrorAlert } from './components/ErrorAlert';
 import { useFileAnalysis } from './hooks/useFileAnalysis';
 
 function App() {
-  const { isLoading, error, result, analyzeFiles } = useFileAnalysis();
+  const { isLoading, error, setError, result, analyzeFiles } = useFileAnalysis();
 
   return (
     <div className="min-h-screen bg-gray-100">

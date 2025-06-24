@@ -6,6 +6,7 @@ from ..models.response import AnalysisResponse, Error
 from pathlib import Path
 import json as _json
 import re
+import demjson3
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class LLMAnalyzer:
                     {"role": "user", "content": full_prompt}
                 ],
                 "stream": False,
-                "max_tokens": 1024,
+                "max_tokens": 2048,
                 "temperature": 0.7
             }
             headers = {
@@ -46,23 +47,79 @@ class LLMAnalyzer:
             # DeepSeek returns the result in choices[0].message.content as a string (should be JSON)
             content = data["choices"][0]["message"]["content"]
             logger.error(f"DeepSeek raw content: {content}")
-            # Попробуем найти JSON-блок в ответе
-            json_match = re.search(r'```json\\s*(\{[\s\S]+?\})\\s*```', content)
+            # Попробуем найти JSON-блок в ответе (устойчиво к markdown и обрезанным скобкам)
+            json_match = re.search(r'```json[\s\n]*([\{\[].*?)[\s\n]*```', content, re.DOTALL)
             if not json_match:
-                # Если нет блока с ```json, ищем просто {...}
-                json_match = re.search(r'(\{[\s\S]+\})', content)
+                # Ищем просто {...} (даже если не до конца)
+                json_match = re.search(r'(\{[\s\S]+)', content)
             if not json_match:
                 logger.error(f"Не найден JSON-блок в ответе: {content}")
                 raise HTTPException(status_code=502, detail="DeepSeek response does not contain JSON block.")
             json_str = json_match.group(1)
+            # Попытка "починить" обрезанный JSON (добавить закрывающую скобку)
+            if json_str.count('{') > json_str.count('}'):
+                json_str += '}' * (json_str.count('{') - json_str.count('}'))
             try:
                 parsed = _json.loads(json_str)
-            except Exception as e:
-                logger.error(f"Failed to parse extracted JSON: {json_str}")
-                raise HTTPException(status_code=502, detail="DeepSeek response JSON block is invalid.")
+            except Exception as e1:
+                try:
+                    parsed = demjson3.decode(json_str)
+                except Exception as e2:
+                    logger.error(f"Failed to parse extracted JSON: {json_str}")
+                    # Попытка вытащить массив errors и summary по отдельности
+                    errors = []
+                    summary = ''
+                    errors_match = re.search(r'"errors"\s*:\s*(\[.*?\])', json_str, re.DOTALL)
+                    if errors_match:
+                        errors_str = errors_match.group(1)
+                        try:
+                            errors_list = _json.loads(errors_str)
+                        except Exception:
+                            try:
+                                errors_list = demjson3.decode(errors_str)
+                            except Exception:
+                                errors_list = []
+                        for err in errors_list:
+                            if isinstance(err, dict):
+                                if 'error' in err and 'message' not in err:
+                                    err['message'] = err.pop('error')
+                                for field in ['category', 'location', 'suggestion', 'justification']:
+                                    if field not in err:
+                                        err[field] = ''
+                                errors.append(Error(**err))
+                            else:
+                                errors.append(Error(
+                                    category="LLM Output",
+                                    location="",
+                                    message=str(err),
+                                    suggestion="",
+                                    justification=""
+                                ))
+                    summary_match = re.search(r'"summary"\s*:\s*"([^"]*)"', json_str)
+                    if summary_match:
+                        summary = summary_match.group(1)
+                    if errors:
+                        return AnalysisResponse(errors=errors, summary=summary)
+                    # Если не удалось вытащить массив ошибок, возвращаем fallback-ошибку
+                    errors = [Error(
+                        category="LLM Output",
+                        location="",
+                        message=f"LLM вернула невалидный JSON. Raw: {json_str[:1000]}... Error: {str(e2)}",
+                        suggestion="Попробуйте уменьшить размер документа или переформулировать требования.",
+                        justification="Модель LLM не смогла сгенерировать корректный JSON. Это может быть связано с лимитом токенов или сложностью входных данных."
+                    )]
+                    summary = "LLM вернула невалидный JSON. Проверьте входные данные или попробуйте снова."
+                    return AnalysisResponse(errors=errors, summary=summary)
             errors = []
             for err in parsed.get('errors', []):
+                # Автоматически преобразуем ошибки с ключом 'error' в стандартный формат
                 if isinstance(err, dict):
+                    if 'error' in err and 'message' not in err:
+                        err['message'] = err.pop('error')
+                    # Гарантируем, что все нужные поля есть
+                    for field in ['category', 'location', 'suggestion', 'justification']:
+                        if field not in err:
+                            err[field] = ''
                     errors.append(Error(**err))
                 else:
                     # Если ошибка не словарь, а строка или что-то ещё, делаем универсальный Error

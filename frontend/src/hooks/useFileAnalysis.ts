@@ -13,8 +13,19 @@ export function useFileAnalysis() {
     try {
       const analysisResult = await api.analyzeDocuments(template, requirements);
       setResult(analysisResult);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'An unexpected error occurred');
+    } catch (error: any) {
+      // Если detail — объект, строка или массив, показываем его, иначе стандартное сообщение
+      if (error?.response?.data?.detail) {
+        setError(
+          typeof error.response.data.detail === 'string'
+            ? error.response.data.detail
+            : JSON.stringify(error.response.data.detail)
+        );
+      } else if (error instanceof Error) {
+        setError(error.message);
+      } else {
+        setError('An unexpected error occurred');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -23,6 +34,7 @@ export function useFileAnalysis() {
   return {
     isLoading,
     error,
+    setError,
     result,
     analyzeFiles,
   };

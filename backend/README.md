@@ -60,6 +60,39 @@ uvicorn app.main:app --reload
 
 ---
 
+## Запуск frontend (клиентская часть)
+
+1. Перейдите в папку frontend:
+   ```bash
+   cd ../frontend
+   ```
+2. Установите зависимости:
+   ```bash
+   npm install
+   ```
+3. Запустите dev-сервер:
+   ```bash
+   npm run dev
+   ```
+   - По умолчанию приложение будет доступно по адресу: http://localhost:5173
+
+4. Откройте страницу в браузере и загрузите два файла (шаблон и требования), затем нажмите "Analyze Documents".
+
+### Важно
+- Frontend по умолчанию ожидает, что backend запущен на http://localhost:8000.
+- Если backend работает на другом порту или домене, измените `API_BASE_URL` в файле `frontend/src/utils/api.ts`:
+  ```js
+  const API_BASE_URL = 'http://localhost:8000/api';
+  ```
+- Для production-сборки используйте:
+  ```bash
+  npm run build
+  npm run preview
+  ```
+  (по умолчанию preview будет доступен на http://localhost:4173)
+
+---
+
 ## Использование API
 
 ### Эндпоинт для анализа требований

@@ -156,8 +156,3 @@ curl -X POST http://127.0.0.1:8000/api/process \
 - `app/core/deepseek_api_key.txt` — API-ключ
 - `app/core/deepseek_prompt.txt` — промпт для LLM
 
----
-
-## Контакты и поддержка
-
-Если возникли вопросы по запуску или интеграции — пишите в issues или обратитесь к разработчику. 
